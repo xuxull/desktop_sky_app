@@ -1,90 +1,183 @@
+import os
+import sqlite3
+from datetime import datetime
+
 import tkinter as tk
 from tkinter import filedialog
+from tkinter import ttk
 from PIL import Image, ImageTk
 
+from predict import predict_image
+
+
+# ================= STATE =================
+current_prediction = None
+current_confidence = None
+
+
+# ================= PATH =================
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BG_PATH = os.path.join(BASE_DIR, "assets", "cloud1.png")
+
+
+# ================= DATABASE =================
+conn = sqlite3.connect("cloud_history.db")
+cursor = conn.cursor()
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT,
+    prediction TEXT,
+    confidence REAL
+)
+""")
+
+conn.commit()
+
+
+def save_to_db(prediction, confidence):
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    cursor.execute("""
+        INSERT INTO history (timestamp, prediction, confidence)
+        VALUES (?, ?, ?)
+    """, (now, prediction, confidence))
+
+    conn.commit()
+
+
+# ================= SAVE =================
+def save_current_prediction():
+    global current_prediction, current_confidence
+
+    if current_prediction is None:
+        result_label.config(text="No prediction yet ⚠")
+        return
+
+    save_to_db(current_prediction, current_confidence)
+    result_label.config(text="Saved to journal ✔")
+
+
+# ================= JOURNAL =================
+def open_history_window():
+    win = tk.Toplevel(root)
+    win.title("Cloud Journal")
+    win.geometry("700x400")
+    win.configure(bg="#0f0f0f")
+
+    tk.Label(
+        win,
+        text="☁ Cloud Journal",
+        font=("Castellar", 16),
+        bg="#0f0f0f",
+        fg="#aec9e6"
+    ).pack(pady=10)
+
+    frame = tk.Frame(win)
+    frame.pack(fill="both", expand=True)
+
+    tree = ttk.Treeview(frame, columns=("time", "cloud", "conf"), show="headings")
+
+    tree.heading("time", text="Time")
+    tree.heading("cloud", text="Cloud Type")
+    tree.heading("conf", text="Confidence")
+
+    tree.column("time", width=220)
+    tree.column("cloud", width=200)
+    tree.column("conf", width=100)
+
+    cursor.execute("""
+        SELECT timestamp, prediction, confidence
+        FROM history
+        ORDER BY id DESC
+    """)
+
+    for row in cursor.fetchall():
+        tree.insert("", "end", values=row)
+
+    tree.pack(fill="both", expand=True)
+
+
+# ================= MAIN WINDOW =================
 root = tk.Tk()
 root.title("Cloud Monitoring Diary")
 root.geometry("900x650")
-root.configure(bg="#000000")
 root.resizable(False, False)
 
-# ===== CLOUDS (ДЕКОР) =====
-from PIL import Image, ImageTk
 
-# ===== CLOUD 1 =====
-cloud1_img = Image.open("assets/cloud1.png")
-cloud1_img.thumbnail((120, 120))
-cloud1_photo = ImageTk.PhotoImage(cloud1_img)
+# ================= BACKGROUND =================
+canvas = tk.Canvas(root, width=900, height=650, highlightthickness=0)
+canvas.place(x=0, y=0)
 
-cloud1 = tk.Label(root, image=cloud1_photo, bg="#000000", border=0)
-cloud1.place(x=40, y=120)
-cloud1.image = cloud1_photo
+bg_image = Image.open(BG_PATH)
+bg_image = bg_image.resize((900, 650))
+bg_photo = ImageTk.PhotoImage(bg_image)
 
-# ===== CLOUD 2 =====
-cloud2_img = Image.open("assets/cloud1.png")
-cloud2_img.thumbnail((180, 180))   # ДРУГОЙ РАЗМЕР
-cloud2_photo = ImageTk.PhotoImage(cloud2_img)
-
-cloud2 = tk.Label(root, image=cloud2_photo, bg="#000000", border=0)
-cloud2.place(x=720, y=180)
-cloud2.image = cloud2_photo
-
-# ===== CLOUD 3 =====
-cloud3_img = Image.open("assets/cloud1.png")
-cloud3_img.thumbnail((160, 160))
-cloud3_photo = ImageTk.PhotoImage(cloud3_img)
-
-cloud3 = tk.Label(root, image=cloud3_photo, bg="#000000", border=0)
-cloud3.place(x=110, y=260)  # чуть левее, безопаснее
-
-cloud3.image = cloud3_photo
-
-# ===== CLOUD 4 =====
-cloud4_img = Image.open("assets/cloud1.png")
-cloud4_img.thumbnail((110, 110))
-cloud4_photo = ImageTk.PhotoImage(cloud4_img)
-
-cloud4 = tk.Label(root, image=cloud4_photo, bg="#000000", border=0)
-cloud4.place(x=650, y=380)
-
-cloud4.image = cloud4_photo
+canvas.create_image(0, 0, image=bg_photo, anchor="nw")
+canvas.bg_photo = bg_photo
 
 
-# ===== CLOUD 5 =====
-cloud5_img = Image.open("assets/cloud1.png")
-cloud5_img.thumbnail((130, 130))
-cloud5_photo = ImageTk.PhotoImage(cloud5_img)
+# ================= MAIN LAYOUT =================
+main_frame = tk.Frame(root, bg="#0f0f0f")
+canvas.create_window(450, 325, window=main_frame)
 
-cloud5 = tk.Label(root, image=cloud5_photo, bg="#000000", border=0)
-cloud5.place(x=100, y=420)
 
-cloud5.image = cloud5_photo
-# ===== TITLE =====
+# ================= TITLE =================
 title = tk.Label(
-    root,
+    main_frame,
     text="☁ Cloud Monitoring Diary 🌩️",
-    font=("Old English Text MT", 43, "bold"),
-    bg="#000000",
+    font=("Old English Text MT", 35, "bold"),
+    bg="#0f0f0f",
     fg="#828EA3"
 )
-title.pack(pady=15)
+title.pack(pady=10)
 
-# ===== IMAGE DISPLAY (УБРАЛИ БЕЛЫЙ FRAME) =====
-image_label = tk.Label(root, bg="#000000")
+
+# ================= CONTENT =================
+content = tk.Frame(main_frame, bg="#0f0f0f")
+content.pack()
+
+left = tk.Frame(content, bg="#0f0f0f")
+left.pack(side="left", padx=40)
+
+right = tk.Frame(content, bg="#0f0f0f")
+right.pack(side="right", padx=40)
+
+
+# ================= IMAGE =================
+image_label = tk.Label(left, bg="#0f0f0f")
 image_label.pack(pady=20)
 
-# ===== RESULT LABEL =====
+
+# ================= RESULT =================
 result_label = tk.Label(
-    root,
+    right,
     text="upload an image to start",
-    font=("Castellar", 20),
-    bg="#000000",
+    font=("Castellar", 18),
+    bg="#0f0f0f",
     fg="#aec9e6"
 )
 result_label.pack(pady=10)
 
-# ===== FUNCTION =====
+
+# ================= SAVE BUTTON =================
+save_btn = tk.Button(
+    right,
+    text="📝 Save to Journal",
+    command=save_current_prediction,
+    font=("Castellar", 12),
+    bg="#445566",
+    fg="white",
+    relief="flat"
+)
+save_btn.pack(pady=10)   # 👈 ВСЕГДА ВИДНА
+
+
+# ================= UPLOAD =================
 def upload_image():
+    global current_prediction, current_confidence
+
     file_path = filedialog.askopenfilename()
 
     if file_path:
@@ -96,12 +189,20 @@ def upload_image():
         image_label.configure(image=img_tk)
         image_label.image = img_tk
 
-        result_label.config(text="Image loaded ✔ (prediction later)")
+        prediction, confidence = predict_image(file_path)
 
-# ===== BUTTON =====
+        current_prediction = prediction
+        current_confidence = confidence
+
+        result_label.config(
+            text=f"{prediction}\nConfidence: {confidence:.1f}%"
+        )
+
+
+# ================= BUTTONS =================
 upload_btn = tk.Button(
-    root,
-    text="📁 upload Image",
+    right,
+    text="📁 Upload Image",
     command=upload_image,
     font=("Castellar", 14),
     bg="#50606b",
@@ -110,7 +211,20 @@ upload_btn = tk.Button(
     pady=10,
     relief="flat"
 )
-
 upload_btn.pack(pady=20)
 
+
+history_btn = tk.Button(
+    right,
+    text="📖 Open Journal",
+    command=open_history_window,
+    font=("Castellar", 12),
+    bg="#303b45",
+    fg="white",
+    relief="flat"
+)
+history_btn.pack(pady=5)
+
+
+# ================= RUN =================
 root.mainloop()
